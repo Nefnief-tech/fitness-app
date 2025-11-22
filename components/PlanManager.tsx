@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { TrainingPlan } from '../types';
+import { TrainingPlan, WorkoutDay, Exercise } from '../types';
 import { generateWorkoutPlan } from '../services/geminiService';
-import { Button, Card, Select, Badge } from './ui';
-import { Trash2, Sparkles, Dumbbell, Calendar, ChevronRight, ChevronLeft, Play, Target, Layers } from 'lucide-react';
+import { Button, Card, Select, Badge, Input } from './ui';
+import { Trash2, Sparkles, Dumbbell, Calendar, ChevronRight, ChevronLeft, Play, Target, Layers, Plus, X } from 'lucide-react';
 
 interface PlanManagerProps {
   plans: TrainingPlan[];
@@ -13,24 +13,134 @@ interface PlanManagerProps {
 
 const PlanManager: React.FC<PlanManagerProps> = ({ plans, onAddPlan, onDeletePlan, onStartWorkout }) => {
   const [selectedPlan, setSelectedPlan] = useState<TrainingPlan | null>(null);
-  const [showAiForm, setShowAiForm] = useState(false);
+  const [view, setView] = useState<'list' | 'ai' | 'custom'>('list');
   const [isLoading, setIsLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   
-  // Form State
+  // AI Form State
   const [goal, setGoal] = useState('Hypertrophy (Muscle Growth)');
   const [days, setDays] = useState(4);
   const [equipment, setEquipment] = useState('Full Gym');
   const [experience, setExperience] = useState('Intermediate');
 
+  // Custom Plan Form State
+  const [customPlan, setCustomPlan] = useState<Omit<TrainingPlan, 'id' | 'createdAt' | 'isAiGenerated'>>({ name: '', description: '', days: []});
+
   const handleGenerate = async () => {
     setIsLoading(true);
-    const plan = await generateWorkoutPlan(goal, days, equipment, experience);
-    if (plan) {
-      onAddPlan(plan);
-      setShowAiForm(false);
+    setAiError(null);
+    try {
+      const plan = await generateWorkoutPlan(goal, days, equipment, experience);
+      if (plan) {
+        onAddPlan(plan);
+        setView('list');
+      } else {
+        setAiError("AI couldn't generate a plan for your request. Try different options.");
+      }
+    } catch (error) {
+      console.error("Caught error in PlanManager:", error);
+      let message = "An unknown error occurred while contacting the AI service.";
+      if (error instanceof Error) {
+        message = error.message;
+      }
+      setAiError(`Could not generate plan: ${message}. Please check your API key and network connection.`);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
+  
+  const resetCustomPlan = () => {
+      setCustomPlan({ name: '', description: '', days: []});
+  }
+
+  const handleSaveCustomPlan = () => {
+    if (!customPlan.name || customPlan.days.length === 0) {
+      alert("Please provide a plan name and at least one day.");
+      return;
+    }
+    const newPlan: TrainingPlan = {
+      ...customPlan,
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+      isAiGenerated: false
+    };
+    onAddPlan(newPlan);
+    resetCustomPlan();
+    setView('list');
+  };
+
+  const handleCustomPlanChange = (field: 'name' | 'description', value: string) => {
+    setCustomPlan(prev => ({ ...prev, [field]: value }));
+  };
+
+  const addDayToCustomPlan = () => {
+    setCustomPlan(prev => ({
+      ...prev,
+      days: [...prev.days, { id: crypto.randomUUID(), name: `Day ${prev.days.length + 1}`, exercises: [] }]
+    }));
+  };
+
+  const removeDayFromCustomPlan = (dayId: string) => {
+    setCustomPlan(prev => ({
+      ...prev,
+      days: prev.days.filter(d => d.id !== dayId)
+    }));
+  };
+
+  const handleDayNameChange = (dayId: string, name: string) => {
+    setCustomPlan(prev => ({
+      ...prev,
+      days: prev.days.map(d => d.id === dayId ? { ...d, name } : d)
+    }));
+  };
+
+  const addExerciseToDay = (dayId: string) => {
+    setCustomPlan(prev => ({
+      ...prev,
+      days: prev.days.map(d => {
+        if (d.id === dayId) {
+          return {
+            ...d,
+            exercises: [...d.exercises, { id: crypto.randomUUID(), name: '', targetSets: 3, targetReps: '8-12' }]
+          };
+        }
+        return d;
+      })
+    }));
+  };
+
+  const removeExerciseFromDay = (dayId: string, exId: string) => {
+    setCustomPlan(prev => ({
+      ...prev,
+      days: prev.days.map(d => {
+        if (d.id === dayId) {
+          return { ...d, exercises: d.exercises.filter(ex => ex.id !== exId) };
+        }
+        return d;
+      })
+    }));
+  };
+
+  const handleExerciseChange = (dayId: string, exId: string, field: keyof Omit<Exercise, 'id'>, value: string | number) => {
+    setCustomPlan(prev => ({
+      ...prev,
+      days: prev.days.map(d => {
+        if (d.id === dayId) {
+          return {
+            ...d,
+            exercises: d.exercises.map(ex => {
+              if (ex.id === exId) {
+                return { ...ex, [field]: value };
+              }
+              return ex;
+            })
+          };
+        }
+        return d;
+      })
+    }));
+  };
+
 
   // --- Detail View ---
   if (selectedPlan) {
@@ -89,88 +199,19 @@ const PlanManager: React.FC<PlanManagerProps> = ({ plans, onAddPlan, onDeletePla
     );
   }
 
-  // --- List View ---
-  return (
+  const renderListView = () => (
     <div className="space-y-6 pb-24 md:pb-0">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold text-white">My Plans</h2>
-        <Button onClick={() => setShowAiForm(!showAiForm)} variant="secondary" className="!py-2 w-full sm:w-auto">
-          {showAiForm ? 'Cancel' : <><Sparkles size={16} className="text-emerald-400" /> New AI Plan</>}
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <Button onClick={() => { setView('custom'); resetCustomPlan(); }} variant="secondary" className="!py-2 flex-1 sm:flex-initial">
+             New Custom Plan
+          </Button>
+          <Button onClick={() => setView('ai')} variant="secondary" className="!py-2 flex-1 sm:flex-initial">
+            <Sparkles size={16} className="text-emerald-400" /> New AI Plan
+          </Button>
+        </div>
       </div>
-
-      {showAiForm && (
-        <Card className="animate-fade-in border-emerald-500/30 bg-emerald-900/5 mb-8">
-          <div className="space-y-6">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                <Sparkles className="text-emerald-400" size={24} />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Generate Workout Split</h3>
-                <p className="text-sm text-zinc-400">Let AI design your perfect routine.</p>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Goal</label>
-                <Select value={goal} onChange={e => setGoal(e.target.value)}>
-                  <option>Hypertrophy (Muscle Growth)</option>
-                  <option>Strength (Powerlifting)</option>
-                  <option>Endurance / Conditioning</option>
-                  <option>Fat Loss</option>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Experience</label>
-                <Select value={experience} onChange={e => setExperience(e.target.value)}>
-                  <option>Beginner</option>
-                  <option>Intermediate</option>
-                  <option>Advanced</option>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Frequency</label>
-                <Select value={days} onChange={e => setDays(Number(e.target.value))}>
-                  <option value={2}>2 Days / Week</option>
-                  <option value={3}>3 Days / Week</option>
-                  <option value={4}>4 Days / Week</option>
-                  <option value={5}>5 Days / Week</option>
-                  <option value={6}>6 Days / Week</option>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Equipment</label>
-                <Select value={equipment} onChange={e => setEquipment(e.target.value)}>
-                  <option>Full Gym</option>
-                  <option>Dumbbells Only</option>
-                  <option>Barbell & Rack</option>
-                  <option>Bodyweight</option>
-                  <option>Home Gym (Basic)</option>
-                </Select>
-              </div>
-            </div>
-
-            <Button 
-              onClick={handleGenerate} 
-              disabled={isLoading} 
-              className="w-full"
-            >
-              {isLoading ? (
-                <span className="flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></span>
-                  Generating...
-                </span>
-              ) : 'Create Plan with AI'}
-            </Button>
-          </div>
-        </Card>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {plans.length === 0 ? (
           <div className="col-span-full text-center py-20 text-zinc-500 border border-dashed border-zinc-800 rounded-2xl">
@@ -215,6 +256,141 @@ const PlanManager: React.FC<PlanManagerProps> = ({ plans, onAddPlan, onDeletePla
       </div>
     </div>
   );
+  
+  const renderAiForm = () => (
+     <Card className="animate-fade-in border-emerald-500/30 bg-emerald-900/5 mb-8">
+      <div className="space-y-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+              <Sparkles className="text-emerald-400" size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Generate Workout Split</h3>
+              <p className="text-sm text-zinc-400">Let AI design your perfect routine.</p>
+            </div>
+          </div>
+          <Button variant="ghost" onClick={() => setView('list')}>Cancel</Button>
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Goal</label>
+            <Select value={goal} onChange={e => setGoal(e.target.value)}>
+              <option>Hypertrophy (Muscle Growth)</option>
+              <option>Strength (Powerlifting)</option>
+              <option>Endurance / Conditioning</option>
+              <option>Fat Loss</option>
+            </Select>
+          </div>
+          
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Experience</label>
+            <Select value={experience} onChange={e => setExperience(e.target.value)}>
+              <option>Beginner</option>
+              <option>Intermediate</option>
+              <option>Advanced</option>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Frequency</label>
+            <Select value={days} onChange={e => setDays(Number(e.target.value))}>
+              <option value={2}>2 Days / Week</option>
+              <option value={3}>3 Days / Week</option>
+              <option value={4}>4 Days / Week</option>
+              <option value={5}>5 Days / Week</option>
+              <option value={6}>6 Days / Week</option>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Equipment</label>
+            <Select value={equipment} onChange={e => setEquipment(e.target.value)}>
+              <option>Full Gym</option>
+              <option>Dumbbells Only</option>
+              <option>Barbell & Rack</option>
+              <option>Bodyweight</option>
+              <option>Home Gym (Basic)</option>
+            </Select>
+          </div>
+        </div>
+        
+        {aiError && (
+          <div className="bg-red-900/40 border border-red-500/30 text-red-400 text-sm rounded-xl p-4 my-4">
+            <p className="font-bold mb-1">Oops, something went wrong!</p>
+            <p className="text-red-400/80">{aiError}</p>
+          </div>
+        )}
+
+        <Button 
+          onClick={handleGenerate} 
+          disabled={isLoading} 
+          className="w-full"
+        >
+          {isLoading ? (
+            <span className="flex items-center gap-2">
+              <span className="w-4 h-4 border-2 border-zinc-950 border-t-transparent rounded-full animate-spin"></span>
+              Generating...
+            </span>
+          ) : 'Create Plan with AI'}
+        </Button>
+      </div>
+    </Card>
+  );
+
+  const renderCustomForm = () => (
+      <div className="animate-fade-in pb-24 md:pb-0">
+          <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-white">Create Custom Plan</h2>
+              <Button variant="ghost" onClick={() => setView('list')}>Cancel</Button>
+          </div>
+          <Card className="!p-6 space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input placeholder="Plan Name (e.g., My PPL Split)" value={customPlan.name} onChange={e => handleCustomPlanChange('name', e.target.value)} />
+                  <Input placeholder="Description (optional)" value={customPlan.description} onChange={e => handleCustomPlanChange('description', e.target.value)} />
+              </div>
+
+              <div className="space-y-4">
+                  {customPlan.days.map(day => (
+                      <Card key={day.id} className="!p-4 bg-zinc-950/50 border-zinc-800">
+                          <div className="flex items-center justify-between mb-4">
+                              <Input className="!py-1 !text-lg !font-bold !bg-transparent !border-0 !p-0" value={day.name} onChange={e => handleDayNameChange(day.id, e.target.value)} />
+                              <Button variant="danger" className="!p-2" onClick={() => removeDayFromCustomPlan(day.id)}><X size={16} /></Button>
+                          </div>
+                          
+                          <div className="space-y-2">
+                              {day.exercises.map(ex => (
+                                  <div key={ex.id} className="grid grid-cols-12 gap-2 items-center">
+                                      <div className="col-span-6"><Input placeholder="Exercise Name" value={ex.name} onChange={e => handleExerciseChange(day.id, ex.id, 'name', e.target.value)} className="!py-2" /></div>
+                                      <div className="col-span-2"><Input type="number" placeholder="Sets" value={ex.targetSets} onChange={e => handleExerciseChange(day.id, ex.id, 'targetSets', Number(e.target.value))} className="!py-2 text-center" /></div>
+                                      <div className="col-span-3"><Input placeholder="Reps (e.g., 8-12)" value={ex.targetReps} onChange={e => handleExerciseChange(day.id, ex.id, 'targetReps', e.target.value)} className="!py-2" /></div>
+                                      <button onClick={() => removeExerciseFromDay(day.id, ex.id)} className="col-span-1 text-zinc-500 hover:text-red-400"><X size={16} /></button>
+                                  </div>
+                              ))}
+                          </div>
+                          <Button variant="secondary" onClick={() => addExerciseToDay(day.id)} className="!py-1.5 !text-xs mt-4 w-full"><Plus size={14}/> Add Exercise</Button>
+                      </Card>
+                  ))}
+              </div>
+              
+              <Button variant="secondary" onClick={addDayToCustomPlan}><Plus size={16} /> Add Day</Button>
+          </Card>
+          
+          <div className="mt-6">
+              <Button onClick={handleSaveCustomPlan} className="w-full">Save Custom Plan</Button>
+          </div>
+      </div>
+  );
+
+  switch (view) {
+    case 'ai':
+      return renderAiForm();
+    case 'custom':
+      return renderCustomForm();
+    default:
+      return renderListView();
+  }
 };
 
 export default PlanManager;

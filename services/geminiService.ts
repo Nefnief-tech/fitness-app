@@ -5,7 +5,8 @@ const getClient = () => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
     console.error("API Key is missing");
-    return null;
+    // Throw an error if the key is missing entirely, so the UI can report it.
+    throw new Error("API key is not configured.");
   }
   return new GoogleGenAI({ apiKey });
 };
@@ -92,6 +93,7 @@ export const generateWorkoutPlan = async (
     return plan;
   } catch (error) {
     console.error("Error generating workout:", error);
-    return null;
+    // Re-throw the error so the UI component can catch it and display a message.
+    throw error;
   }
 };

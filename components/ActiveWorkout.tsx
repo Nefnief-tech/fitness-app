@@ -1,14 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { ActiveSession, WorkoutDay, SetLog, TrainingPlan } from '../types';
+import { ActiveSession, WorkoutDay, SetLog, TrainingPlan, WorkoutHistory } from '../types';
 import { Button, Card } from './ui';
 import { Check, ChevronLeft, Clock, Plus, Minus } from 'lucide-react';
 
 interface ActiveWorkoutProps {
   plan: TrainingPlan;
   day: WorkoutDay;
+  history: WorkoutHistory[];
   onFinish: (session: ActiveSession) => void;
   onCancel: () => void;
 }
+
+// Helper to find the last weight used for a specific exercise
+const findLastWeightForExercise = (exerciseName: string, history: WorkoutHistory[]): number => {
+    for (const record of history) { // history is newest first
+      if (record.exercises) {
+        const exerciseLog = record.exercises.find(e => e.name === exerciseName);
+        if (exerciseLog && exerciseLog.sets.length > 0) {
+          // Find the last completed set to get the most relevant weight
+          const lastCompletedSet = [...exerciseLog.sets].reverse().find(s => s.completed);
+          if (lastCompletedSet) {
+            return lastCompletedSet.weight;
+          }
+          // Fallback to the last set if none are marked completed
+          return exerciseLog.sets[exerciseLog.sets.length - 1].weight;
+        }
+      }
+    }
+    return 0; // Default if never performed
+};
+
 
 // Helper Component for numeric input with stepper controls
 const Stepper = ({ 
@@ -65,7 +86,7 @@ const Stepper = ({
   );
 };
 
-const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, day, onFinish, onCancel }) => {
+const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, day, history, onFinish, onCancel }) => {
   const [elapsed, setElapsed] = useState(0);
   const [session, setSession] = useState<ActiveSession>({
     id: crypto.randomUUID(),
@@ -74,6 +95,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, day, onFinish, onCa
     startTime: Date.now(),
     exercises: {}
   });
+  const [lastWeights, setLastWeights] = useState<Record<string, number>>({});
 
   // Timer
   useEffect(() => {
@@ -84,18 +106,25 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, day, onFinish, onCa
   // Initialize sets based on plan defaults if empty
   useEffect(() => {
     const initialExercises: Record<string, SetLog[]> = {};
+    const initialLastWeights: Record<string, number> = {};
+
     day.exercises.forEach(ex => {
+      const lastWeight = findLastWeightForExercise(ex.name, history);
+      initialLastWeights[ex.id] = lastWeight;
+
       const sets: SetLog[] = [];
       for (let i = 0; i < ex.targetSets; i++) {
         sets.push({
           id: crypto.randomUUID(),
           reps: 0, 
-          weight: 0,
+          weight: lastWeight, // Use last recorded weight
           completed: false
         });
       }
       initialExercises[ex.id] = sets;
     });
+
+    setLastWeights(initialLastWeights);
     setSession(prev => ({ ...prev, exercises: initialExercises }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -189,7 +218,10 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ plan, day, onFinish, onCa
                 <div className="flex justify-between items-end px-1">
                     <div>
                     <h3 className="text-lg md:text-xl font-bold text-zinc-100">{exercise.name}</h3>
-                    <p className="text-xs md:text-sm text-zinc-500">Target: {exercise.targetSets} x {exercise.targetReps}</p>
+                    <div className="flex gap-4 items-baseline">
+                      <p className="text-xs md:text-sm text-zinc-500">Target: {exercise.targetSets} x {exercise.targetReps}</p>
+                      {lastWeights[exercise.id] > 0 && <p className="text-xs text-blue-500 font-mono">Last: {lastWeights[exercise.id]}kg</p>}
+                    </div>
                     </div>
                     <div className="flex gap-2">
                         <button onClick={() => removeSet(exercise.id)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-900 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 border border-zinc-800 transition-colors">

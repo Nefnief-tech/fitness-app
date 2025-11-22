@@ -3,8 +3,9 @@ import { TrainingPlan, AppView, WorkoutHistory, ActiveSession, WorkoutLogDetail 
 import PlanManager from './components/PlanManager';
 import ActiveWorkout from './components/ActiveWorkout';
 import Stats from './components/Stats';
+import LandingPage from './components/LandingPage'; // Import the new Landing Page
 import { Card } from './components/ui';
-import { LayoutDashboard, Dumbbell, BarChart2, Play, Trophy, Activity, User } from 'lucide-react';
+import { LayoutDashboard, Dumbbell, BarChart2, Play, Trophy, Activity, User, Info } from 'lucide-react';
 
 // Default Presets
 const DEFAULT_PLANS: TrainingPlan[] = [
@@ -52,6 +53,11 @@ const DEFAULT_PLANS: TrainingPlan[] = [
 ];
 
 const App = () => {
+  // Simple routing check
+  if (window.location.pathname === '/landing') {
+    return <LandingPage />;
+  }
+
   // --- State ---
   const [view, setView] = useState<AppView>(AppView.DASHBOARD);
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
@@ -82,14 +88,14 @@ const App = () => {
 
   // Save Plans
   useEffect(() => {
-    if (plans.length > 0) {
+    if (plans.length > 0 || localStorage.getItem('ironpulse_plans')) {
       localStorage.setItem('ironpulse_plans', JSON.stringify(plans));
     }
   }, [plans]);
 
   // Save History
   useEffect(() => {
-    if (history.length > 0) {
+     if (history.length > 0 || localStorage.getItem('ironpulse_history')) {
       localStorage.setItem('ironpulse_history', JSON.stringify(history));
     }
   }, [history]);
@@ -259,7 +265,7 @@ const App = () => {
   if (view === AppView.ACTIVE_WORKOUT && activePlan && activeDayId) {
     const activeDay = activePlan.days.find(d => d.id === activeDayId);
     if (activeDay) {
-      return <ActiveWorkout plan={activePlan} day={activeDay} onFinish={handleFinishWorkout} onCancel={handleCancelWorkout} />;
+      return <ActiveWorkout plan={activePlan} day={activeDay} history={history} onFinish={handleFinishWorkout} onCancel={handleCancelWorkout} />;
     }
   }
 
@@ -291,6 +297,13 @@ const App = () => {
                     <span className="text-[10px] text-zinc-500">Free Plan</span>
                 </div>
             </div>
+            <a 
+              href="/landing" 
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-all w-full text-sm mt-2"
+            >
+              <Info size={18} />
+              <span>About IronPulse</span>
+            </a>
         </div>
       </aside>
 
